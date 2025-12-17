@@ -8,7 +8,6 @@ import 'providers/auth_provider.dart';
 import 'providers/chat_provider.dart';
 import 'screens/auth_screen.dart';
 import 'screens/home_screen.dart';
-import 'screens/chat_screen.dart';
 import 'screens/search_screen.dart';
 import 'screens/profile_screen.dart';
 
@@ -32,6 +31,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ChatProvider()),
       ],
       child: MaterialApp(
+       debugShowCheckedModeBanner: false,
         title: 'Chat App',
         theme: ThemeData(
           primarySwatch: Colors.blue,
@@ -40,14 +40,20 @@ class MyApp extends StatelessWidget {
           appBarTheme: const AppBarTheme(
             backgroundColor: Colors.blue,
             elevation: 0,
-            titleTextStyle: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+            titleTextStyle: TextStyle(
+              color: Colors.white,
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+            ),
           ),
           textTheme: const TextTheme(
             bodyLarge: TextStyle(color: Colors.black87),
             bodyMedium: TextStyle(color: Colors.black54),
           ),
           cardTheme: CardThemeData(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
             elevation: 2,
           ),
         ),
@@ -55,6 +61,7 @@ class MyApp extends StatelessWidget {
         routes: {
           '/auth': (_) => const AuthScreen(),
           '/search': (_) => const SearchScreen(),
+          '/home': (_) => const HomeScreen(),
         },
       ),
     );
@@ -71,18 +78,12 @@ class BottomNavWrapper extends StatefulWidget {
 class _BottomNavWrapperState extends State<BottomNavWrapper> {
   int _currentIndex = 0;
 
-  final List<Widget> _tabs = [
-    HomeScreen(),
-    ProfileScreen(),
-  ];
+  final List<Widget> _tabs = [HomeScreen(), ProfileScreen()];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: _tabs,
-      ),
+      body: IndexedStack(index: _currentIndex, children: _tabs),
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         currentIndex: _currentIndex,

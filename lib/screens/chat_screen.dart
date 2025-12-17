@@ -10,7 +10,11 @@ class ChatScreen extends StatefulWidget {
   final String chatId;
   final String otherUserId;
 
-  const ChatScreen({required this.chatId, required this.otherUserId, super.key});
+  const ChatScreen({
+    required this.chatId,
+    required this.otherUserId,
+    super.key,
+  });
 
   @override
   _ChatScreenState createState() => _ChatScreenState();
@@ -27,41 +31,62 @@ class _ChatScreenState extends State<ChatScreen> {
 
   final List<String> _reactions = ['😂', '❤️', '👍', '👌', '👏', '😢', '😔'];
 
+  ChatProvider? _chatProvider; // set in didChangeDependencies
+
   @override
   void initState() {
     super.initState();
     _loadUserId();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _chatProvider ??= Provider.of<ChatProvider>(context, listen: false);
     _loadOtherUser();
   }
 
   Future<void> _loadUserId() async {
     final prefs = await SharedPreferences.getInstance();
-    setState(() => userId = prefs.getString('userId'));
+    final loadedId = prefs.getString('userId');
+    if (!mounted) return;
+    setState(() => userId = loadedId);
   }
 
   Future<void> _loadOtherUser() async {
-    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-    final userDoc = await chatProvider.getUser(widget.otherUserId).first;
-    if (userDoc.exists) {
+    if (_chatProvider == null) return;
+    final userDoc = await _chatProvider!.getUser(widget.otherUserId).first;
+    if (userDoc.exists && mounted) {
       setState(() => otherUsername = userDoc['username']);
     }
   }
 
-  void _sendOrEditMessage(ChatProvider chatProvider) {
-    if (_messageController.text.trim().isNotEmpty) {
-      if (_editingMessageId != null) {
-        chatProvider.editMessage(widget.chatId, _editingMessageId!, _messageController.text.trim());
-        setState(() => _editingMessageId = null);
-      } else {
-        chatProvider.sendMessage(widget.chatId, userId!, _messageController.text.trim(), quotedMessageId: _quotedMessageId);
-        setState(() {
-          _quotedMessageId = null;
-          _quotedText = null;
-        });
-      }
-      _messageController.clear();
-      _scrollToBottom();
+  void _sendOrEditMessage() {
+    if (_chatProvider == null || userId == null) return;
+    final text = _messageController.text.trim();
+    if (text.isEmpty) return;
+
+    if (_editingMessageId != null) {
+      _chatProvider!.editMessage(
+        widget.chatId,
+        _editingMessageId!,
+        text,
+      );
+      setState(() => _editingMessageId = null);
+    } else {
+      _chatProvider!.sendMessage(
+        widget.chatId,
+        userId!,
+        text,
+        quotedMessageId: _quotedMessageId,
+      );
+      setState(() {
+        _quotedMessageId = null;
+        _quotedText = null;
+      });
     }
+    _messageController.clear();
+    _scrollToBottom();
   }
 
   void _startEditing(String messageId, String currentText) {
@@ -72,16 +97,26 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _showReactions(String messageId) {
+    if (_chatProvider == null || userId == null) return;
     showModalBottomSheet(
       context: context,
       builder: (context) => Wrap(
-        children: _reactions.map((reaction) => IconButton(
-          icon: Text(reaction, style: const TextStyle(fontSize: 24)),
-          onPressed: () {
-            Provider.of<ChatProvider>(context, listen: false).addReaction(widget.chatId, messageId, userId!, reaction);
-            Navigator.pop(context);
-          },
-        )).toList(),
+        children: _reactions
+            .map(
+              (reaction) => IconButton(
+                icon: Text(reaction, style: const TextStyle(fontSize: 24)),
+                onPressed: () {
+                  _chatProvider!.addReaction(
+                    widget.chatId,
+                    messageId,
+                    userId!,
+                    reaction,
+                  );
+                  Navigator.pop(context);
+                },
+              ),
+            )
+            .toList(),
       ),
     );
   }
@@ -95,7 +130,10 @@ class _ChatScreenState extends State<ChatScreen> {
         color: Colors.grey[300],
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Text(quotedData['text'] ?? '', style: const TextStyle(color: Colors.black54)),
+      child: Text(
+        quotedData['text'] ?? '',
+        style: const TextStyle(color: Colors.black54),
+      ),
     );
   }
 
@@ -114,17 +152,27 @@ class _ChatScreenState extends State<ChatScreen> {
         decoration: BoxDecoration(
           color: Colors.white.withOpacity(0.9),
           borderRadius: BorderRadius.circular(12),
-          boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.3), blurRadius: 2)],
+          boxShadow: [
+            BoxShadow(color: Colors.grey.withOpacity(0.3), blurRadius: 2),
+          ],
         ),
         child: Wrap(
           spacing: 2,
-          children: reactionCounts.entries.map((e) => Text('${e.key}${e.value > 1 ? e.value.toString() : ''}', style: const TextStyle(fontSize: 12))).toList(),
+          children: reactionCounts.entries
+              .map(
+                (e) => Text(
+                  '${e.key}${e.value > 1 ? e.value.toString() : ''}',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              )
+              .toList(),
         ),
       ),
     );
   }
 
   void _scrollToBottom() {
+    if (!mounted) return;
     _scrollController.animateTo(
       0,
       duration: const Duration(milliseconds: 300),
@@ -141,9 +189,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final chatProvider = Provider.of<ChatProvider>(context);
-
-    if (userId == null || otherUsername == null) {
+    if (userId == null || otherUsername == null || _chatProvider == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
@@ -152,14 +198,12 @@ class _ChatScreenState extends State<ChatScreen> {
         title: Text(otherUsername!),
         actions: [
           PopupMenuButton<String>(
-            onSelected: (value) {
-              // Handle forward, etc.
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(value: 'React', child: Text('React')),
-              const PopupMenuItem(value: 'Reply', child: Text('Reply')),
-              const PopupMenuItem(value: 'Forward', child: Text('Forward')),
-              const PopupMenuItem(value: 'Delete', child: Text('Delete')),
+            onSelected: (value) {},
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: 'React', child: Text('React')),
+              PopupMenuItem(value: 'Reply', child: Text('Reply')),
+              PopupMenuItem(value: 'Forward', child: Text('Forward')),
+              PopupMenuItem(value: 'Delete', child: Text('Delete')),
             ],
           ),
         ],
@@ -172,13 +216,24 @@ class _ChatScreenState extends State<ChatScreen> {
               padding: const EdgeInsets.all(8),
               child: Row(
                 children: [
-                  Expanded(child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(_editingMessageId != null ? 'Editing message' : 'Replying to message'),
-                      if (_quotedText != null) Text(_quotedText!, maxLines: 1, overflow: TextOverflow.ellipsis),
-                    ],
-                  )),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _editingMessageId != null
+                              ? 'Editing message'
+                              : 'Replying to message',
+                        ),
+                        if (_quotedText != null)
+                          Text(
+                            _quotedText!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                      ],
+                    ),
+                  ),
                   IconButton(
                     icon: const Icon(Icons.close),
                     onPressed: () => setState(() {
@@ -193,13 +248,24 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
-              stream: chatProvider.getMessages(widget.chatId),
+              stream: _chatProvider!.getMessages(widget.chatId),
               builder: (context, snapshot) {
                 if (!snapshot.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }
                 final messages = snapshot.data!.docs;
-                WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+
+                // Mark chat as read as soon as we have messages and userId.
+                if (userId != null && messages.isNotEmpty) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted || _chatProvider == null) return;
+                    _chatProvider!.markChatAsRead(widget.chatId, userId!);
+                  });
+                }
+
+                WidgetsBinding.instance
+                    .addPostFrameCallback((_) => _scrollToBottom());
+
                 return ListView.builder(
                   controller: _scrollController,
                   reverse: true,
@@ -209,29 +275,43 @@ class _ChatScreenState extends State<ChatScreen> {
                     final doc = messages[index];
                     final data = doc.data() as Map<String, dynamic>;
                     final isMe = data['senderId'] == userId;
-                    final timestamp = (data['timestamp'] as Timestamp).toDate();
+                    final timestamp =
+                        (data['timestamp'] as Timestamp).toDate();
                     final editedAt = data['editedAt'] as Timestamp?;
-                    final reactions = data['reactions'] as Map<String, dynamic>? ?? {};
+                    final reactions =
+                        data['reactions'] as Map<String, dynamic>? ?? {};
                     final quotedId = data['quotedMessageId'] as String?;
                     Widget? quotedWidget;
                     if (quotedId != null) {
-                      final quotedDoc = messages.firstWhere((m) => m.id == quotedId, orElse: () => doc);
-                      quotedWidget = _buildQuotedMessage(quotedDoc.data() as Map<String, dynamic>?);
+                      final quotedDoc = messages.firstWhere(
+                        (m) => m.id == quotedId,
+                        orElse: () => doc,
+                      );
+                      quotedWidget = _buildQuotedMessage(
+                        quotedDoc.data() as Map<String, dynamic>?,
+                      );
                     }
                     return Dismissible(
                       key: Key(doc.id),
-                      direction: isMe ? DismissDirection.endToStart : DismissDirection.startToEnd,
+                      direction: isMe
+                          ? DismissDirection.endToStart
+                          : DismissDirection.startToEnd,
                       onDismissed: (_) {
                         if (isMe) {
-                          chatProvider.deleteMessage(widget.chatId, doc.id);
+                          _chatProvider!.deleteMessage(widget.chatId, doc.id);
                         } else {
                           _setQuoted(doc.id, data['text']);
                         }
                       },
                       background: Container(
                         color: isMe ? Colors.red : Colors.green,
-                        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-                        child: Icon(isMe ? Icons.delete : Icons.reply, color: Colors.white),
+                        alignment: isMe
+                            ? Alignment.centerRight
+                            : Alignment.centerLeft,
+                        child: Icon(
+                          isMe ? Icons.delete : Icons.reply,
+                          color: Colors.white,
+                        ),
                       ),
                       child: GestureDetector(
                         onLongPress: () {
@@ -245,12 +325,19 @@ class _ChatScreenState extends State<ChatScreen> {
                           clipBehavior: Clip.none,
                           children: [
                             Align(
-                              alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                              alignment: isMe
+                                  ? Alignment.centerRight
+                                  : Alignment.centerLeft,
                               child: Container(
-                                margin: const EdgeInsets.symmetric(vertical: 4),
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                margin:
+                                    const EdgeInsets.symmetric(vertical: 4),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 10,
+                                ),
                                 decoration: BoxDecoration(
-                                  color: isMe ? Colors.blue : Colors.grey[200],
+                                  color:
+                                      isMe ? Colors.blue : Colors.grey[200],
                                   borderRadius: BorderRadius.only(
                                     topLeft: Radius.circular(isMe ? 20 : 0),
                                     topRight: Radius.circular(isMe ? 0 : 20),
@@ -259,18 +346,29 @@ class _ChatScreenState extends State<ChatScreen> {
                                   ),
                                 ),
                                 child: Column(
-                                  crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                                  crossAxisAlignment: isMe
+                                      ? CrossAxisAlignment.end
+                                      : CrossAxisAlignment.start,
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     if (quotedWidget != null) quotedWidget,
                                     Text(
                                       data['text'],
-                                      style: TextStyle(color: isMe ? Colors.white : Colors.black),
+                                      style: TextStyle(
+                                        color: isMe
+                                            ? Colors.white
+                                            : Colors.black,
+                                      ),
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
-                                      '${DateFormat('HH:mm').format(timestamp)}${editedAt != null ? ' (edited)' : ''}',
-                                      style: TextStyle(fontSize: 10, color: isMe ? Colors.white70 : Colors.black54),
+                                      '${DateFormat('hh:mm a').format(timestamp)}${editedAt != null ? ' (edited)' : ''}',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: isMe
+                                            ? Colors.white70
+                                            : Colors.black54,
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -290,7 +388,13 @@ class _ChatScreenState extends State<ChatScreen> {
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
               color: Colors.white,
-              boxShadow: [BoxShadow(color: Colors.grey.withOpacity(0.2), blurRadius: 10, offset: const Offset(0, -5))],
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.grey.withOpacity(0.2),
+                  blurRadius: 10,
+                  offset: const Offset(0, -5),
+                ),
+              ],
             ),
             child: Row(
               children: [
@@ -306,14 +410,14 @@ class _ChatScreenState extends State<ChatScreen> {
                       filled: true,
                       fillColor: Colors.grey[100],
                     ),
-                    onSubmitted: (_) => _sendOrEditMessage(chatProvider),
+                    onSubmitted: (_) => _sendOrEditMessage(),
                   ),
                 ),
                 const SizedBox(width: 8),
                 FloatingActionButton(
                   mini: true,
                   backgroundColor: Colors.blue,
-                  onPressed: () => _sendOrEditMessage(chatProvider),
+                  onPressed: _sendOrEditMessage,
                   child: const Icon(Icons.send, color: Colors.white),
                 ),
               ],

@@ -71,11 +71,29 @@ class _HomeScreenState extends State<HomeScreen> {
                 return ListView.builder(
                   itemCount: chats.length,
                   itemBuilder: (context, index) {
-                    var chatDoc = chats[index];
-                    List participants = chatDoc['participants'];
-                    String otherUserId = participants.firstWhere(
+                    final chatDoc = chats[index];
+                    final data = chatDoc.data() as Map<String, dynamic>;
+
+                    final List participants = data['participants'] as List;
+                    final String otherUserId = participants.firstWhere(
                       (id) => id != userId,
                     );
+
+                    final Timestamp? lastTs =
+                        data['lastMessageTime'] as Timestamp?;
+                    final DateTime lastTime =
+                        lastTs?.toDate() ?? DateTime.now();
+                    final String lastMessage =
+                        data['lastMessage'] as String? ?? 'No messages yet';
+
+                    final Map<String, dynamic>? unreadMap =
+                        data['unreadCounts'] as Map<String, dynamic>?;
+                    final int unreadCount = unreadMap?[userId] is int
+                        ? unreadMap![userId] as int
+                        : (unreadMap?[userId] is num
+                              ? (unreadMap?[userId] as num).toInt()
+                              : 0);
+
                     return Dismissible(
                       key: Key(chatDoc.id),
                       direction: DismissDirection.endToStart,
@@ -92,25 +110,22 @@ class _HomeScreenState extends State<HomeScreen> {
                         stream: chatProvider.getUser(otherUserId),
                         builder: (context, userSnapshot) {
                           if (!userSnapshot.hasData ||
-                              !userSnapshot.data!.exists)
+                              !userSnapshot.data!.exists) {
                             return const SizedBox.shrink();
-                          var lastTime =
-                              (chatDoc['lastMessageTime'] as Timestamp?)
-                                  ?.toDate() ??
-                              DateTime.now();
-                          var lastMessage =
-                              chatDoc['lastMessage'] ?? 'No messages yet';
-                          int unreadCount =
-                              0; // Placeholder for unread - implement if needed
+                          }
+
+                          final username =
+                              userSnapshot.data!['username'] as String? ??
+                              'Unknown User';
+
                           return ListTile(
                             leading: Stack(
                               children: [
                                 CircleAvatar(
                                   backgroundColor: Colors.blue.shade100,
                                   child: Text(
-                                    (userSnapshot.data!['username']
-                                            as String? ??
-                                        'U')[0],
+                                    (username.isNotEmpty ? username[0] : 'U')
+                                        .toUpperCase(),
                                     style: const TextStyle(color: Colors.blue),
                                   ),
                                 ),
@@ -136,13 +151,13 @@ class _HomeScreenState extends State<HomeScreen> {
                               ],
                             ),
                             title: Text(
-                              userSnapshot.data!['username'] ?? 'Unknown User',
+                              username,
                               style: const TextStyle(
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
                             subtitle: Text(
-                              '$lastMessage\n${DateFormat('MMM d, HH:mm').format(lastTime)}',
+                              '$lastMessage\n${DateFormat('MMM d, hh:mm a').format(lastTime)}',
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(color: Colors.black54),
@@ -151,7 +166,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               mainAxisAlignment: MainAxisAlignment.center,
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
-                                Text(DateFormat('HH:mm').format(lastTime)),
+                                Text(DateFormat('hh:mm a').format(lastTime)),
                                 if (unreadCount > 0)
                                   Container(
                                     padding: const EdgeInsets.symmetric(
