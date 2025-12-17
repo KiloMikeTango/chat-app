@@ -3,7 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../providers/chat_provider.dart';
+import '../../application/chat_provider.dart';
 import 'chat_screen.dart';
 
 class SearchScreen extends StatefulWidget {
