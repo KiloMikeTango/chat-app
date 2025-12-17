@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:remixicon/remixicon.dart';
 import '../../application/chat_provider.dart';
 import 'chat_screen.dart';
 
@@ -31,29 +32,39 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   Widget build(BuildContext context) {
     final chatProvider = Provider.of<ChatProvider>(context);
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
-    if (userId == null) return const Center(child: CircularProgressIndicator());
+    if (userId == null) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
 
     return Scaffold(
+      backgroundColor: isDark ? const Color(0xFF050505) : theme.colorScheme.background,
       appBar: AppBar(
-        title: const Text('New Chat'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () {},
-          ),
-        ],
+        title: const Text('New chat'),
+        elevation: 0,
+        backgroundColor: isDark ? const Color(0xFF050505) : theme.scaffoldBackgroundColor,
       ),
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(16.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
             child: TextField(
               controller: _searchController,
-              decoration: const InputDecoration(
-                labelText: 'Search by username',
-                suffixIcon: Icon(Icons.search),
-                border: OutlineInputBorder(),
+              decoration: InputDecoration(
+                prefixIcon: const Icon(Remix.search_line),
+                hintText: 'Search by username',
+                filled: true,
+                fillColor:
+                    isDark ? const Color(0xFF111111) : theme.colorScheme.surface,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(24),
+                  borderSide: BorderSide.none,
+                ),
               ),
               onChanged: (value) => setState(() {}),
             ),
@@ -62,25 +73,59 @@ class _SearchScreenState extends State<SearchScreen> {
             child: FutureBuilder<List<QueryDocumentSnapshot>>(
               future: chatProvider.searchUsers(_searchController.text),
               builder: (context, snapshot) {
-                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-                if (snapshot.data!.isEmpty) return const Center(child: Text('No users found'));
-                return ListView.builder(
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snapshot.data!.isEmpty) {
+                  return Center(
+                    child: Text(
+                      'No users found',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.textTheme.bodyMedium?.color
+                            ?.withOpacity(0.7),
+                      ),
+                    ),
+                  );
+                }
+                return ListView.separated(
                   itemCount: snapshot.data!.length,
+                  separatorBuilder: (_, __) =>
+                      Divider(height: 1, color: theme.dividerColor.withOpacity(0.2)),
                   itemBuilder: (context, index) {
-                    var userDoc = snapshot.data![index];
-                    if (userDoc.id == userId) return const SizedBox.shrink();
+                    final userDoc = snapshot.data![index];
+                    if (userDoc.id == userId) {
+                      return const SizedBox.shrink();
+                    }
+                    final username =
+                        userDoc['username'] as String? ?? 'Unknown';
+
                     return ListTile(
                       leading: CircleAvatar(
-                        backgroundColor: Colors.blue.shade100,
-                        child: Text((userDoc['username'] as String? ?? 'U')[0], style: const TextStyle(color: Colors.blue)),
+                        backgroundColor:
+                            theme.colorScheme.primary.withOpacity(0.15),
+                        child: Text(
+                          username.isNotEmpty ? username[0].toUpperCase() : 'U',
+                          style: TextStyle(
+                            color: theme.colorScheme.primary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ),
-                      title: Text(userDoc['username'] ?? 'Unknown'),
+                      title: Text(username),
+                      trailing: const Icon(Remix.arrow_right_s_line),
                       onTap: () async {
-                        String chatId = await chatProvider.getOrCreateChat(userId!, userDoc.id);
+                        final chatId = await chatProvider.getOrCreateChat(
+                          userId!,
+                          userDoc.id,
+                        );
+                        // ignore: use_build_context_synchronously
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => ChatScreen(chatId: chatId, otherUserId: userDoc.id),
+                            builder: (_) => ChatScreen(
+                              chatId: chatId,
+                              otherUserId: userDoc.id,
+                            ),
                           ),
                         );
                       },

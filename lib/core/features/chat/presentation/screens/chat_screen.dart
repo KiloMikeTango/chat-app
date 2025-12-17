@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:remixicon/remixicon.dart';
 import '../../application/chat_provider.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -28,10 +29,11 @@ class _ChatScreenState extends State<ChatScreen> {
   String? _quotedMessageId;
   String? _editingMessageId;
   String? _quotedText;
+  String? _quotedSenderId;
 
   final List<String> _reactions = ['😂', '❤️', '👍', '👌', '👏', '😢', '😔'];
 
-  ChatProvider? _chatProvider; // set in didChangeDependencies
+  ChatProvider? _chatProvider;
 
   @override
   void initState() {
@@ -67,11 +69,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (text.isEmpty) return;
 
     if (_editingMessageId != null) {
-      _chatProvider!.editMessage(
-        widget.chatId,
-        _editingMessageId!,
-        text,
-      );
+      _chatProvider!.editMessage(widget.chatId, _editingMessageId!, text);
       setState(() => _editingMessageId = null);
     } else {
       _chatProvider!.sendMessage(
@@ -80,11 +78,14 @@ class _ChatScreenState extends State<ChatScreen> {
         text,
         quotedMessageId: _quotedMessageId,
       );
-      setState(() {
-        _quotedMessageId = null;
-        _quotedText = null;
-      });
     }
+
+    setState(() {
+      _quotedMessageId = null;
+      _quotedText = null;
+      _quotedSenderId = null;
+    });
+
     _messageController.clear();
     _scrollToBottom();
   }
@@ -93,6 +94,33 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() {
       _editingMessageId = messageId;
       _messageController.text = currentText;
+      _quotedMessageId = null;
+      _quotedText = null;
+      _quotedSenderId = null;
+    });
+  }
+
+  void _setQuoted({
+    required String messageId,
+    required String text,
+    required String senderId,
+  }) {
+    setState(() {
+      _quotedMessageId = messageId;
+      _quotedText = text;
+      _quotedSenderId = senderId;
+      _editingMessageId = null;
+    });
+    // Optionally focus input
+    // FocusScope.of(context).requestFocus(FocusNode());
+  }
+
+  void _clearReplyAndEdit() {
+    setState(() {
+      _quotedMessageId = null;
+      _quotedText = null;
+      _quotedSenderId = null;
+      _editingMessageId = null;
     });
   }
 
@@ -100,39 +128,54 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_chatProvider == null || userId == null) return;
     showModalBottomSheet(
       context: context,
-      builder: (context) => Wrap(
-        children: _reactions
-            .map(
-              (reaction) => IconButton(
-                icon: Text(reaction, style: const TextStyle(fontSize: 24)),
-                onPressed: () {
-                  _chatProvider!.addReaction(
-                    widget.chatId,
-                    messageId,
-                    userId!,
-                    reaction,
-                  );
-                  Navigator.pop(context);
-                },
-              ),
-            )
-            .toList(),
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12.0),
+        child: Wrap(
+          alignment: WrapAlignment.center,
+          children: _reactions
+              .map(
+                (reaction) => IconButton(
+                  icon: Text(reaction, style: const TextStyle(fontSize: 26)),
+                  onPressed: () {
+                    _chatProvider!.addReaction(
+                      widget.chatId,
+                      messageId,
+                      userId!,
+                      reaction,
+                    );
+                    Navigator.pop(context);
+                  },
+                ),
+              )
+              .toList(),
+        ),
       ),
     );
   }
 
   Widget _buildQuotedMessage(Map<String, dynamic>? quotedData) {
     if (quotedData == null) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return Container(
       padding: const EdgeInsets.all(8),
       margin: const EdgeInsets.only(bottom: 4),
       decoration: BoxDecoration(
-        color: Colors.grey[300],
-        borderRadius: BorderRadius.circular(8),
+        color: isDark
+            ? Colors.black.withOpacity(0.25)
+            : Colors.white.withOpacity(0.35),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Text(
         quotedData['text'] ?? '',
-        style: const TextStyle(color: Colors.black54),
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: theme.textTheme.bodySmall?.color?.withOpacity(0.8),
+        ),
       ),
     );
   }
@@ -144,25 +187,22 @@ class _ChatScreenState extends State<ChatScreen> {
       reactionCounts[reaction] = (reactionCounts[reaction] ?? 0) + 1;
     });
     return Positioned(
-      bottom: 0,
-      right: isMe ? 0 : null,
-      left: isMe ? null : 0,
+      bottom: -4,
+      right: isMe ? 12 : null,
+      left: isMe ? null : 12,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
         decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.9),
+          color: Colors.black.withOpacity(0.5),
           borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(color: Colors.grey.withOpacity(0.3), blurRadius: 2),
-          ],
         ),
         child: Wrap(
-          spacing: 2,
+          spacing: 4,
           children: reactionCounts.entries
               .map(
                 (e) => Text(
                   '${e.key}${e.value > 1 ? e.value.toString() : ''}',
-                  style: const TextStyle(fontSize: 12),
+                  style: const TextStyle(fontSize: 11, color: Colors.white),
                 ),
               )
               .toList(),
@@ -175,16 +215,9 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!mounted) return;
     _scrollController.animateTo(
       0,
-      duration: const Duration(milliseconds: 300),
+      duration: const Duration(milliseconds: 250),
       curve: Curves.easeOut,
     );
-  }
-
-  void _setQuoted(String messageId, String text) {
-    setState(() {
-      _quotedMessageId = messageId;
-      _quotedText = text;
-    });
   }
 
   @override
@@ -193,234 +226,316 @@ class _ChatScreenState extends State<ChatScreen> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
     return Scaffold(
+      backgroundColor:
+          isDark ? const Color(0xFF050505) : theme.colorScheme.background,
       appBar: AppBar(
-        title: Text(otherUsername!),
+        elevation: 0,
+        backgroundColor:
+            isDark ? const Color(0xFF050505) : theme.scaffoldBackgroundColor,
+        titleSpacing: 0,
+        title: Row(
+          children: [
+            CircleAvatar(
+              radius: 18,
+              backgroundColor: theme.colorScheme.primary.withOpacity(0.15),
+              child: Text(
+                otherUsername![0].toUpperCase(),
+                style: TextStyle(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              otherUsername!,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
         actions: [
-          PopupMenuButton<String>(
-            onSelected: (value) {},
-            itemBuilder: (context) => const [
-              PopupMenuItem(value: 'React', child: Text('React')),
-              PopupMenuItem(value: 'Reply', child: Text('Reply')),
-              PopupMenuItem(value: 'Forward', child: Text('Forward')),
-              PopupMenuItem(value: 'Delete', child: Text('Delete')),
-            ],
-          ),
+          IconButton(icon: const Icon(Remix.phone_line), onPressed: () {}),
+          IconButton(icon: const Icon(Remix.video_line), onPressed: () {}),
+          const SizedBox(width: 4),
         ],
       ),
       body: Column(
         children: [
+          // MAIN MESSAGES AREA
+          Expanded(
+            child: Container(
+              color:
+                  isDark ? const Color(0xFF050505) : theme.colorScheme.background,
+              child: StreamBuilder<QuerySnapshot>(
+                stream: _chatProvider!.getMessages(widget.chatId),
+                builder: (context, snapshot) {
+                  if (!snapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final messages = snapshot.data!.docs;
+
+                  if (userId != null && messages.isNotEmpty) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!mounted || _chatProvider == null) return;
+                      _chatProvider!.markChatAsRead(widget.chatId, userId!);
+                    });
+                  }
+
+                  WidgetsBinding.instance
+                      .addPostFrameCallback((_) => _scrollToBottom());
+
+                  return ListView.builder(
+                    controller: _scrollController,
+                    reverse: true,
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                    itemCount: messages.length,
+                    itemBuilder: (context, index) {
+                      final doc = messages[index];
+                      final data = doc.data() as Map<String, dynamic>;
+                      final isMe = data['senderId'] == userId;
+                      final timestamp =
+                          (data['timestamp'] as Timestamp).toDate();
+                      final editedAt = data['editedAt'] as Timestamp?;
+                      final reactions =
+                          data['reactions'] as Map<String, dynamic>? ?? {};
+                      final quotedId = data['quotedMessageId'] as String?;
+                      Widget? quotedWidget;
+
+                      if (quotedId != null) {
+                        QueryDocumentSnapshot? quotedDoc;
+                        for (final m in messages) {
+                          if (m.id == quotedId) {
+                            quotedDoc = m;
+                            break;
+                          }
+                        }
+                        if (quotedDoc != null) {
+                          quotedWidget = _buildQuotedMessage(
+                            quotedDoc.data() as Map<String, dynamic>?,
+                          );
+                        }
+                      }
+
+                      final bubbleColor = theme.cardColor;
+                      final textColor = isDark
+                          ? Colors.white
+                          : theme.textTheme.bodyMedium?.color;
+
+                      return Dismissible(
+                        key: Key(doc.id),
+                        direction: isMe
+                            // my messages: left = delete, right = reply
+                            ? DismissDirection.horizontal
+                            // other messages: right = reply only
+                            : DismissDirection.startToEnd,
+                        confirmDismiss: (direction) async {
+                          if (direction == DismissDirection.endToStart &&
+                              isMe) {
+                            // left swipe on my message = delete
+                            _chatProvider!
+                                .deleteMessage(widget.chatId, doc.id);
+                            return true; // allow dismiss
+                          }
+
+                          if (direction == DismissDirection.startToEnd) {
+                            // right swipe = reply (both me & other)
+                            _setQuoted(
+                              messageId: doc.id,
+                              text: data['text'],
+                              senderId: data['senderId'],
+                            );
+                            return false; // do NOT remove item
+                          }
+
+                          return false;
+                        },
+                        // transparent-ish backgrounds with small icons
+                        background: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Padding(
+                            padding:
+                                const EdgeInsets.symmetric(horizontal: 12.0),
+                            child: Icon(
+                              Remix.reply_line,
+                              color:
+                                  theme.colorScheme.primary.withOpacity(0.8),
+                            ),
+                          ),
+                        ),
+                        secondaryBackground: isMe
+                            ? Align(
+                                alignment: Alignment.centerRight,
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12.0),
+                                  child: Icon(
+                                    Remix.delete_bin_6_line,
+                                    color: Colors.red.withOpacity(0.8),
+                                  ),
+                                ),
+                              )
+                            : const SizedBox.shrink(),
+                        child: GestureDetector(
+                          onLongPress: () {
+                            if (isMe) {
+                              _startEditing(doc.id, data['text']);
+                            } else {
+                              _showReactions(doc.id);
+                            }
+                          },
+                          child: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              Align(
+                                alignment: isMe
+                                    ? Alignment.centerRight
+                                    : Alignment.centerLeft,
+                                child: ConstrainedBox(
+                                  constraints: BoxConstraints(
+                                    maxWidth:
+                                        MediaQuery.of(context).size.width *
+                                            0.78,
+                                  ),
+                                  child: Container(
+                                    margin: const EdgeInsets.symmetric(
+                                        vertical: 4),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 10,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: bubbleColor,
+                                      borderRadius: BorderRadius.only(
+                                        topLeft:
+                                            Radius.circular(isMe ? 16 : 4),
+                                        topRight:
+                                            Radius.circular(isMe ? 4 : 16),
+                                        bottomLeft: const Radius.circular(16),
+                                        bottomRight: const Radius.circular(16),
+                                      ),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: isMe
+                                          ? CrossAxisAlignment.end
+                                          : CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (quotedWidget != null) quotedWidget,
+                                        Text(
+                                          data['text'],
+                                          style: theme.textTheme.bodyMedium
+                                              ?.copyWith(color: textColor),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          '${DateFormat('HH:mm').format(timestamp)}${editedAt != null ? ' · edited' : ''}',
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                            fontSize: 11,
+                                            color: (isDark
+                                                    ? Colors.white70
+                                                    : theme.textTheme.bodySmall
+                                                        ?.color)
+                                                ?.withOpacity(0.7),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              _buildReactionBubble(reactions, isMe),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ),
+
+          // REPLY / EDIT PREVIEW JUST ABOVE INPUT
           if (_quotedMessageId != null || _editingMessageId != null)
-            Container(
-              color: Colors.grey[200],
-              padding: const EdgeInsets.all(8),
+            _ReplyEditBar(
+              isEditing: _editingMessageId != null,
+              quotedText: _quotedText,
+              isReplyingToMe: _quotedSenderId == userId,
+              otherUsername: otherUsername,
+              onClear: _clearReplyAndEdit,
+            ),
+
+          // INPUT AREA
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 12.0,
+              vertical: 10.0,
+            ),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? const Color(0xFF111111)
+                  : theme.scaffoldBackgroundColor,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.15),
+                  blurRadius: 12,
+                  offset: const Offset(0, -4),
+                ),
+              ],
+            ),
+            child: SafeArea(
+              top: false,
               child: Row(
                 children: [
+                  IconButton(
+                    icon: const Icon(Remix.add_circle_line),
+                    onPressed: () {},
+                  ),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _editingMessageId != null
-                              ? 'Editing message'
-                              : 'Replying to message',
-                        ),
-                        if (_quotedText != null)
-                          Text(
-                            _quotedText!,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? const Color(0xFF1B1B1D)
+                            : theme.colorScheme.surface,
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      child: TextField(
+                        controller: _messageController,
+                        minLines: 1,
+                        maxLines: 5,
+                        decoration: const InputDecoration(
+                          hintText: 'Type a message...',
+                          border: InputBorder.none,
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 10,
                           ),
-                      ],
+                        ),
+                        onSubmitted: (_) => _sendOrEditMessage(),
+                      ),
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => setState(() {
-                      _quotedMessageId = null;
-                      _quotedText = null;
-                      _editingMessageId = null;
-                      _messageController.clear();
-                    }),
+                  const SizedBox(width: 8),
+                  CircleAvatar(
+                    radius: 22,
+                    backgroundColor: theme.colorScheme.primary,
+                    child: IconButton(
+                      icon: const Icon(
+                        Remix.send_plane_2_fill,
+                        color: Colors.white,
+                      ),
+                      onPressed: _sendOrEditMessage,
+                    ),
                   ),
                 ],
               ),
-            ),
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: _chatProvider!.getMessages(widget.chatId),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                final messages = snapshot.data!.docs;
-
-                // Mark chat as read as soon as we have messages and userId.
-                if (userId != null && messages.isNotEmpty) {
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (!mounted || _chatProvider == null) return;
-                    _chatProvider!.markChatAsRead(widget.chatId, userId!);
-                  });
-                }
-
-                WidgetsBinding.instance
-                    .addPostFrameCallback((_) => _scrollToBottom());
-
-                return ListView.builder(
-                  controller: _scrollController,
-                  reverse: true,
-                  padding: const EdgeInsets.all(8),
-                  itemCount: messages.length,
-                  itemBuilder: (context, index) {
-                    final doc = messages[index];
-                    final data = doc.data() as Map<String, dynamic>;
-                    final isMe = data['senderId'] == userId;
-                    final timestamp =
-                        (data['timestamp'] as Timestamp).toDate();
-                    final editedAt = data['editedAt'] as Timestamp?;
-                    final reactions =
-                        data['reactions'] as Map<String, dynamic>? ?? {};
-                    final quotedId = data['quotedMessageId'] as String?;
-                    Widget? quotedWidget;
-                    if (quotedId != null) {
-                      final quotedDoc = messages.firstWhere(
-                        (m) => m.id == quotedId,
-                        orElse: () => doc,
-                      );
-                      quotedWidget = _buildQuotedMessage(
-                        quotedDoc.data() as Map<String, dynamic>?,
-                      );
-                    }
-                    return Dismissible(
-                      key: Key(doc.id),
-                      direction: isMe
-                          ? DismissDirection.endToStart
-                          : DismissDirection.startToEnd,
-                      onDismissed: (_) {
-                        if (isMe) {
-                          _chatProvider!.deleteMessage(widget.chatId, doc.id);
-                        } else {
-                          _setQuoted(doc.id, data['text']);
-                        }
-                      },
-                      background: Container(
-                        color: isMe ? Colors.red : Colors.green,
-                        alignment: isMe
-                            ? Alignment.centerRight
-                            : Alignment.centerLeft,
-                        child: Icon(
-                          isMe ? Icons.delete : Icons.reply,
-                          color: Colors.white,
-                        ),
-                      ),
-                      child: GestureDetector(
-                        onLongPress: () {
-                          if (isMe) {
-                            _startEditing(doc.id, data['text']);
-                          } else {
-                            _showReactions(doc.id);
-                          }
-                        },
-                        child: Stack(
-                          clipBehavior: Clip.none,
-                          children: [
-                            Align(
-                              alignment: isMe
-                                  ? Alignment.centerRight
-                                  : Alignment.centerLeft,
-                              child: Container(
-                                margin:
-                                    const EdgeInsets.symmetric(vertical: 4),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 10,
-                                ),
-                                decoration: BoxDecoration(
-                                  color:
-                                      isMe ? Colors.blue : Colors.grey[200],
-                                  borderRadius: BorderRadius.only(
-                                    topLeft: Radius.circular(isMe ? 20 : 0),
-                                    topRight: Radius.circular(isMe ? 0 : 20),
-                                    bottomLeft: const Radius.circular(20),
-                                    bottomRight: const Radius.circular(20),
-                                  ),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: isMe
-                                      ? CrossAxisAlignment.end
-                                      : CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (quotedWidget != null) quotedWidget,
-                                    Text(
-                                      data['text'],
-                                      style: TextStyle(
-                                        color: isMe
-                                            ? Colors.white
-                                            : Colors.black,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      '${DateFormat('hh:mm a').format(timestamp)}${editedAt != null ? ' (edited)' : ''}',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color: isMe
-                                            ? Colors.white70
-                                            : Colors.black54,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                            _buildReactionBubble(reactions, isMe),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.grey.withOpacity(0.2),
-                  blurRadius: 10,
-                  offset: const Offset(0, -5),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _messageController,
-                    decoration: InputDecoration(
-                      hintText: 'Type a message...',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(30),
-                        borderSide: BorderSide.none,
-                      ),
-                      filled: true,
-                      fillColor: Colors.grey[100],
-                    ),
-                    onSubmitted: (_) => _sendOrEditMessage(),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                FloatingActionButton(
-                  mini: true,
-                  backgroundColor: Colors.blue,
-                  onPressed: _sendOrEditMessage,
-                  child: const Icon(Icons.send, color: Colors.white),
-                ),
-              ],
             ),
           ),
         ],
@@ -433,5 +548,83 @@ class _ChatScreenState extends State<ChatScreen> {
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+}
+
+/// Small bar above the input showing reply/edit state.
+class _ReplyEditBar extends StatelessWidget {
+  final bool isEditing;
+  final String? quotedText;
+  final bool isReplyingToMe;
+  final String? otherUsername;
+  final VoidCallback onClear;
+
+  const _ReplyEditBar({
+    required this.isEditing,
+    required this.quotedText,
+    required this.isReplyingToMe,
+    required this.otherUsername,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final label = isEditing
+        ? 'Editing'
+        : isReplyingToMe
+            ? 'Replying to You'
+            : 'Replying to ${otherUsername ?? 'user'}';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface.withOpacity(
+          theme.brightness == Brightness.dark ? 0.9 : 1,
+        ),
+        border: Border(
+          top: BorderSide(
+            color: theme.dividerColor.withOpacity(0.2),
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            isEditing ? Remix.edit_2_line : Remix.reply_line,
+            size: 18,
+            color: theme.colorScheme.primary,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (!isEditing && quotedText != null)
+                  Text(
+                    quotedText!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.textTheme.bodySmall?.color
+                          ?.withOpacity(0.7),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Remix.close_line),
+            onPressed: onClear,
+          ),
+        ],
+      ),
+    );
   }
 }
