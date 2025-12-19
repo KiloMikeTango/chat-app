@@ -48,7 +48,6 @@ class MyApp extends StatelessWidget {
             routes: {
               '/auth': (_) => const AuthScreen(),
               '/search': (_) => const SearchScreen(),
-              '/home': (_) => const HomeScreen(),
             },
           );
         },

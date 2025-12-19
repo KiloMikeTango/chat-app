@@ -35,6 +35,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   ChatProvider? _chatProvider;
 
+  // NEW: ensure markChatAsRead runs only once per open
+  bool _hasMarkedRead = false;
+
   @override
   void initState() {
     super.initState();
@@ -76,6 +79,7 @@ class _ChatScreenState extends State<ChatScreen> {
         widget.chatId,
         userId!,
         text,
+        participants: [userId!, widget.otherUserId],
         quotedMessageId: _quotedMessageId,
       );
     }
@@ -111,8 +115,6 @@ class _ChatScreenState extends State<ChatScreen> {
       _quotedSenderId = senderId;
       _editingMessageId = null;
     });
-    // Optionally focus input
-    // FocusScope.of(context).requestFocus(FocusNode());
   }
 
   void _clearReplyAndEdit() {
@@ -162,20 +164,60 @@ class _ChatScreenState extends State<ChatScreen> {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
+    final quotedText = quotedData['text'] as String? ?? '';
+    final quotedSenderId = quotedData['senderId'] as String?;
+    final isMe = quotedSenderId == userId;
+    final title = isMe ? 'You' : otherUsername ?? 'User';
+
     return Container(
-      padding: const EdgeInsets.all(8),
       margin: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: isDark
-            ? Colors.black.withOpacity(0.25)
-            : Colors.white.withOpacity(0.35),
+            ? const Color.fromARGB(255, 36, 36, 36)
+            : const Color.fromARGB(255, 184, 222, 255),
         borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        quotedData['text'] ?? '',
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: theme.textTheme.bodySmall?.color?.withOpacity(0.8),
+        border: Border.all(
+          color: theme.colorScheme.primary.withOpacity(isDark ? 0.6 : 0.8),
+          width: 1.2,
         ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 3,
+            margin: const EdgeInsets.only(right: 8, top: 2, bottom: 2),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary,
+              borderRadius: BorderRadius.circular(999),
+            ),
+          ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  quotedText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.textTheme.bodySmall?.color?.withOpacity(0.9),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -230,12 +272,14 @@ class _ChatScreenState extends State<ChatScreen> {
     final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor:
-          isDark ? const Color(0xFF050505) : theme.colorScheme.background,
+      backgroundColor: isDark
+          ? const Color(0xFF050505)
+          : theme.colorScheme.background,
       appBar: AppBar(
         elevation: 0,
-        backgroundColor:
-            isDark ? const Color(0xFF050505) : theme.scaffoldBackgroundColor,
+        backgroundColor: isDark
+            ? const Color(0xFF050505)
+            : theme.scaffoldBackgroundColor,
         titleSpacing: 0,
         title: Row(
           children: [
@@ -267,11 +311,11 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       body: Column(
         children: [
-          // MAIN MESSAGES AREA
           Expanded(
             child: Container(
-              color:
-                  isDark ? const Color(0xFF050505) : theme.colorScheme.background,
+              color: isDark
+                  ? const Color(0xFF050505)
+                  : theme.colorScheme.background,
               child: StreamBuilder<QuerySnapshot>(
                 stream: _chatProvider!.getMessages(widget.chatId),
                 builder: (context, snapshot) {
@@ -280,15 +324,34 @@ class _ChatScreenState extends State<ChatScreen> {
                   }
                   final messages = snapshot.data!.docs;
 
-                  if (userId != null && messages.isNotEmpty) {
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (!mounted || _chatProvider == null) return;
-                      _chatProvider!.markChatAsRead(widget.chatId, userId!);
-                    });
+                  // Mark as read ONCE per open when there are messages.
+                  if (userId != null &&
+                      messages.isNotEmpty &&
+                      !_hasMarkedRead) {
+                    final hasMessageFromOthers = messages.any(
+                      (m) =>
+                          (m.data() as Map<String, dynamic>)['senderId'] !=
+                          userId,
+                    );
+
+                    if (hasMessageFromOthers) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) async {
+                        if (!mounted || _chatProvider == null) return;
+                        await _chatProvider!.markChatAsRead(
+                          widget.chatId,
+                          userId!,
+                        );
+                        if (!mounted) return;
+                        setState(() {
+                          _hasMarkedRead = true;
+                        });
+                      });
+                    }
                   }
 
-                  WidgetsBinding.instance
-                      .addPostFrameCallback((_) => _scrollToBottom());
+                  WidgetsBinding.instance.addPostFrameCallback(
+                    (_) => _scrollToBottom(),
+                  );
 
                   return ListView.builder(
                     controller: _scrollController,
@@ -299,8 +362,8 @@ class _ChatScreenState extends State<ChatScreen> {
                       final doc = messages[index];
                       final data = doc.data() as Map<String, dynamic>;
                       final isMe = data['senderId'] == userId;
-                      final timestamp =
-                          (data['timestamp'] as Timestamp).toDate();
+                      final timestamp = (data['timestamp'] as Timestamp)
+                          .toDate();
                       final editedAt = data['editedAt'] as Timestamp?;
                       final reactions =
                           data['reactions'] as Map<String, dynamic>? ?? {};
@@ -330,41 +393,35 @@ class _ChatScreenState extends State<ChatScreen> {
                       return Dismissible(
                         key: Key(doc.id),
                         direction: isMe
-                            // my messages: left = delete, right = reply
                             ? DismissDirection.horizontal
-                            // other messages: right = reply only
                             : DismissDirection.startToEnd,
                         confirmDismiss: (direction) async {
                           if (direction == DismissDirection.endToStart &&
                               isMe) {
-                            // left swipe on my message = delete
-                            _chatProvider!
-                                .deleteMessage(widget.chatId, doc.id);
-                            return true; // allow dismiss
+                            _chatProvider!.deleteMessage(widget.chatId, doc.id);
+                            return true;
                           }
 
                           if (direction == DismissDirection.startToEnd) {
-                            // right swipe = reply (both me & other)
                             _setQuoted(
                               messageId: doc.id,
                               text: data['text'],
                               senderId: data['senderId'],
                             );
-                            return false; // do NOT remove item
+                            return false;
                           }
 
                           return false;
                         },
-                        // transparent-ish backgrounds with small icons
                         background: Align(
                           alignment: Alignment.centerLeft,
                           child: Padding(
-                            padding:
-                                const EdgeInsets.symmetric(horizontal: 12.0),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12.0,
+                            ),
                             child: Icon(
                               Remix.reply_line,
-                              color:
-                                  theme.colorScheme.primary.withOpacity(0.8),
+                              color: theme.colorScheme.primary.withOpacity(0.8),
                             ),
                           ),
                         ),
@@ -373,7 +430,8 @@ class _ChatScreenState extends State<ChatScreen> {
                                 alignment: Alignment.centerRight,
                                 child: Padding(
                                   padding: const EdgeInsets.symmetric(
-                                      horizontal: 12.0),
+                                    horizontal: 12.0,
+                                  ),
                                   child: Icon(
                                     Remix.delete_bin_6_line,
                                     color: Colors.red.withOpacity(0.8),
@@ -392,63 +450,78 @@ class _ChatScreenState extends State<ChatScreen> {
                           child: Stack(
                             clipBehavior: Clip.none,
                             children: [
-                              Align(
-                                alignment: isMe
-                                    ? Alignment.centerRight
-                                    : Alignment.centerLeft,
-                                child: ConstrainedBox(
-                                  constraints: BoxConstraints(
-                                    maxWidth:
-                                        MediaQuery.of(context).size.width *
+                              Row(
+                                mainAxisAlignment: isMe
+                                    ? MainAxisAlignment.end
+                                    : MainAxisAlignment.start,
+                                children: [
+                                  IntrinsicWidth(
+                                    child: ConstrainedBox(
+                                      constraints: BoxConstraints(
+                                        minWidth: 80,
+                                        maxWidth:
+                                            MediaQuery.of(context).size.width *
                                             0.78,
-                                  ),
-                                  child: Container(
-                                    margin: const EdgeInsets.symmetric(
-                                        vertical: 4),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 14,
-                                      vertical: 10,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: bubbleColor,
-                                      borderRadius: BorderRadius.only(
-                                        topLeft:
-                                            Radius.circular(isMe ? 16 : 4),
-                                        topRight:
-                                            Radius.circular(isMe ? 4 : 16),
-                                        bottomLeft: const Radius.circular(16),
-                                        bottomRight: const Radius.circular(16),
                                       ),
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment: isMe
-                                          ? CrossAxisAlignment.end
-                                          : CrossAxisAlignment.start,
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        if (quotedWidget != null) quotedWidget,
-                                        Text(
-                                          data['text'],
-                                          style: theme.textTheme.bodyMedium
-                                              ?.copyWith(color: textColor),
+                                      child: Container(
+                                        margin: const EdgeInsets.symmetric(
+                                          vertical: 4,
                                         ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          '${DateFormat('HH:mm').format(timestamp)}${editedAt != null ? ' · edited' : ''}',
-                                          style: theme.textTheme.bodySmall
-                                              ?.copyWith(
-                                            fontSize: 11,
-                                            color: (isDark
-                                                    ? Colors.white70
-                                                    : theme.textTheme.bodySmall
-                                                        ?.color)
-                                                ?.withOpacity(0.7),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 14,
+                                          vertical: 10,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: bubbleColor,
+                                          borderRadius: BorderRadius.only(
+                                            topLeft: Radius.circular(
+                                              isMe ? 16 : 4,
+                                            ),
+                                            topRight: Radius.circular(
+                                              isMe ? 4 : 16,
+                                            ),
+                                            bottomLeft: const Radius.circular(
+                                              16,
+                                            ),
+                                            bottomRight: const Radius.circular(
+                                              16,
+                                            ),
                                           ),
                                         ),
-                                      ],
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            if (quotedWidget != null)
+                                              quotedWidget,
+                                            Text(
+                                              data['text'],
+                                              style: theme.textTheme.bodyMedium
+                                                  ?.copyWith(color: textColor),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              '${DateFormat('h:mm a').format(timestamp)}${editedAt != null ? ' · edited' : ''}',
+                                              style: theme.textTheme.bodySmall
+                                                  ?.copyWith(
+                                                    fontSize: 11,
+                                                    color:
+                                                        (isDark
+                                                                ? Colors.white70
+                                                                : theme
+                                                                      .textTheme
+                                                                      .bodySmall
+                                                                      ?.color)
+                                                            ?.withOpacity(0.7),
+                                                  ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
                                     ),
                                   ),
-                                ),
+                                ],
                               ),
                               _buildReactionBubble(reactions, isMe),
                             ],
@@ -461,8 +534,6 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
           ),
-
-          // REPLY / EDIT PREVIEW JUST ABOVE INPUT
           if (_quotedMessageId != null || _editingMessageId != null)
             _ReplyEditBar(
               isEditing: _editingMessageId != null,
@@ -471,8 +542,6 @@ class _ChatScreenState extends State<ChatScreen> {
               otherUsername: otherUsername,
               onClear: _clearReplyAndEdit,
             ),
-
-          // INPUT AREA
           Container(
             padding: const EdgeInsets.symmetric(
               horizontal: 12.0,
@@ -551,7 +620,6 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 }
 
-/// Small bar above the input showing reply/edit state.
 class _ReplyEditBar extends StatelessWidget {
   final bool isEditing;
   final String? quotedText;
@@ -573,8 +641,8 @@ class _ReplyEditBar extends StatelessWidget {
     final label = isEditing
         ? 'Editing'
         : isReplyingToMe
-            ? 'Replying to You'
-            : 'Replying to ${otherUsername ?? 'user'}';
+        ? 'Replying to Yourself'
+        : 'Replying to ${otherUsername ?? 'user'}';
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -583,9 +651,7 @@ class _ReplyEditBar extends StatelessWidget {
           theme.brightness == Brightness.dark ? 0.9 : 1,
         ),
         border: Border(
-          top: BorderSide(
-            color: theme.dividerColor.withOpacity(0.2),
-          ),
+          top: BorderSide(color: theme.dividerColor.withOpacity(0.2)),
         ),
       ),
       child: Row(
@@ -612,17 +678,13 @@ class _ReplyEditBar extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.textTheme.bodySmall?.color
-                          ?.withOpacity(0.7),
+                      color: theme.textTheme.bodySmall?.color?.withOpacity(0.7),
                     ),
                   ),
               ],
             ),
           ),
-          IconButton(
-            icon: const Icon(Remix.close_line),
-            onPressed: onClear,
-          ),
+          IconButton(icon: const Icon(Remix.close_line), onPressed: onClear),
         ],
       ),
     );

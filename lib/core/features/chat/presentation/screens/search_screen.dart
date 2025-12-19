@@ -30,6 +30,12 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final chatProvider = Provider.of<ChatProvider>(context);
     final theme = Theme.of(context);
@@ -41,12 +47,16 @@ class _SearchScreenState extends State<SearchScreen> {
       );
     }
 
+    final query = _searchController.text.trim();
+
     return Scaffold(
-      backgroundColor: isDark ? const Color(0xFF050505) : theme.colorScheme.background,
+      backgroundColor:
+          isDark ? const Color(0xFF050505) : theme.colorScheme.background,
       appBar: AppBar(
         title: const Text('New chat'),
         elevation: 0,
-        backgroundColor: isDark ? const Color(0xFF050505) : theme.scaffoldBackgroundColor,
+        backgroundColor:
+            isDark ? const Color(0xFF050505) : theme.scaffoldBackgroundColor,
       ),
       body: Column(
         children: [
@@ -70,70 +80,97 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
           ),
           Expanded(
-            child: FutureBuilder<List<QueryDocumentSnapshot>>(
-              future: chatProvider.searchUsers(_searchController.text),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (snapshot.data!.isEmpty) {
-                  return Center(
+            child: query.isEmpty
+                ? Center(
                     child: Text(
-                      'No users found',
+                      'Type a username to start searching',
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: theme.textTheme.bodyMedium?.color
                             ?.withOpacity(0.7),
                       ),
                     ),
-                  );
-                }
-                return ListView.separated(
-                  itemCount: snapshot.data!.length,
-                  separatorBuilder: (_, __) =>
-                      Divider(height: 1, color: theme.dividerColor.withOpacity(0.2)),
-                  itemBuilder: (context, index) {
-                    final userDoc = snapshot.data![index];
-                    if (userDoc.id == userId) {
-                      return const SizedBox.shrink();
-                    }
-                    final username =
-                        userDoc['username'] as String? ?? 'Unknown';
-
-                    return ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor:
-                            theme.colorScheme.primary.withOpacity(0.15),
-                        child: Text(
-                          username.isNotEmpty ? username[0].toUpperCase() : 'U',
-                          style: TextStyle(
-                            color: theme.colorScheme.primary,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      title: Text(username),
-                      trailing: const Icon(Remix.arrow_right_s_line),
-                      onTap: () async {
-                        final chatId = await chatProvider.getOrCreateChat(
-                          userId!,
-                          userDoc.id,
-                        );
-                        // ignore: use_build_context_synchronously
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => ChatScreen(
-                              chatId: chatId,
-                              otherUserId: userDoc.id,
+                  )
+                : FutureBuilder<List<QueryDocumentSnapshot>>(
+                    future: chatProvider.searchUsers(query),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(
+                            child: CircularProgressIndicator());
+                      }
+                      if (snapshot.hasError) {
+                        return Center(
+                          child: Text(
+                            'Something went wrong',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.error,
                             ),
                           ),
                         );
-                      },
-                    );
-                  },
-                );
-              },
-            ),
+                      }
+                      if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                        return Center(
+                          child: Text(
+                            'No users found',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.textTheme.bodyMedium?.color
+                                  ?.withOpacity(0.7),
+                            ),
+                          ),
+                        );
+                      }
+                      final docs = snapshot.data!;
+                      return ListView.separated(
+                        itemCount: docs.length,
+                        separatorBuilder: (_, __) => Divider(
+                          height: 1,
+                          color: theme.dividerColor.withOpacity(0.2),
+                        ),
+                        itemBuilder: (context, index) {
+                          final userDoc = docs[index];
+                          if (userDoc.id == userId) {
+                            return const SizedBox.shrink();
+                          }
+                          final username =
+                              userDoc['username'] as String? ?? 'Unknown';
+
+                          return ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: theme.colorScheme.primary
+                                  .withOpacity(0.15),
+                              child: Text(
+                                username.isNotEmpty
+                                    ? username[0].toUpperCase()
+                                    : 'U',
+                                style: TextStyle(
+                                  color: theme.colorScheme.primary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            title: Text(username),
+                            trailing: const Icon(Remix.arrow_right_s_line),
+                            onTap: () async {
+                              // Compute chatId deterministically but DO NOT create chat yet.
+                              final chatId = chatProvider.buildChatId(
+                                userId!,
+                                userDoc.id,
+                              );
+                              // ignore: use_build_context_synchronously
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => ChatScreen(
+                                    chatId: chatId,
+                                    otherUserId: userDoc.id,
+                                  ),
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      );
+                    },
+                  ),
           ),
         ],
       ),

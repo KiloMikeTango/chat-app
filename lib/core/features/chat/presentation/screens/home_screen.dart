@@ -39,10 +39,14 @@ class _HomeScreenState extends State<HomeScreen> {
     if (userId == null) return const SizedBox.shrink();
 
     return Scaffold(
-      backgroundColor: isDark ? const Color(0xFF050505) : theme.colorScheme.background,
+      backgroundColor: isDark
+          ? const Color(0xFF050505)
+          : theme.colorScheme.background,
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: isDark ? const Color(0xFF050505) : theme.scaffoldBackgroundColor,
+        backgroundColor: isDark
+            ? const Color(0xFF050505)
+            : theme.scaffoldBackgroundColor,
         title: const Text('Chats'),
         actions: [
           IconButton(
@@ -52,19 +56,20 @@ class _HomeScreenState extends State<HomeScreen> {
               MaterialPageRoute(builder: (_) => const SearchScreen()),
             ),
           ),
-          IconButton(
-            icon: const Icon(Remix.more_2_fill),
-            onPressed: () {},
-          ),
+          IconButton(icon: const Icon(Remix.more_2_fill), onPressed: () {}),
         ],
       ),
       body: Column(
         children: [
           Container(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 16.0,
+              vertical: 10.0,
+            ),
             decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF050505) : theme.scaffoldBackgroundColor,
+              color: isDark
+                  ? const Color(0xFF050505)
+                  : theme.scaffoldBackgroundColor,
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withOpacity(0.15),
@@ -83,8 +88,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 prefixIcon: const Icon(Remix.search_line),
                 hintText: 'Search',
                 filled: true,
-                fillColor:
-                    isDark ? const Color(0xFF111111) : theme.colorScheme.surface,
+                fillColor: isDark
+                    ? const Color(0xFF111111)
+                    : theme.colorScheme.surface,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(24),
                   borderSide: BorderSide.none,
@@ -109,8 +115,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Text(
                       'No chats yet. Start a new conversation!',
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.textTheme.bodyMedium?.color
-                            ?.withOpacity(0.7),
+                        color: theme.textTheme.bodyMedium?.color?.withOpacity(
+                          0.7,
+                        ),
                       ),
                     ),
                   );
@@ -137,7 +144,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         data['lastMessageTime'] as Timestamp?;
                     final DateTime lastTime =
                         lastTs?.toDate() ?? DateTime.now();
-                    final String lastMessage =
+                    final String rawLastMessage =
                         data['lastMessage'] as String? ?? 'No messages yet';
 
                     final Map<String, dynamic>? unreadMap =
@@ -145,8 +152,16 @@ class _HomeScreenState extends State<HomeScreen> {
                     final int unreadCount = unreadMap?[userId] is int
                         ? unreadMap![userId] as int
                         : (unreadMap?[userId] is num
-                            ? (unreadMap?[userId] as num).toInt()
-                            : 0);
+                              ? (unreadMap?[userId] as num).toInt()
+                              : 0);
+
+                    final bool isMyLastMessage =
+                        (data['lastMessageSenderId'] as String?) == userId;
+                    final String displayLastMessage = rawLastMessage.isEmpty
+                        ? ''
+                        : isMyLastMessage
+                        ? 'You: $rawLastMessage'
+                        : rawLastMessage;
 
                     return Dismissible(
                       key: Key(chatDoc.id),
@@ -156,8 +171,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         color: Colors.red,
                         alignment: Alignment.centerRight,
                         padding: const EdgeInsets.only(right: 24),
-                        child: const Icon(Remix.delete_bin_6_line,
-                            color: Colors.white),
+                        child: const Icon(
+                          Remix.delete_bin_6_line,
+                          color: Colors.white,
+                        ),
                       ),
                       onDismissed: (_) {
                         chatProvider.deleteChat(chatDoc.id);
@@ -172,7 +189,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
                           final username =
                               userSnapshot.data!['username'] as String? ??
-                                  'Unknown User';
+                              'Unknown User';
 
                           return ListTile(
                             contentPadding: const EdgeInsets.symmetric(
@@ -181,8 +198,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             leading: CircleAvatar(
                               radius: 24,
-                              backgroundColor:
-                                  theme.colorScheme.primary.withOpacity(0.15),
+                              backgroundColor: theme.colorScheme.primary
+                                  .withOpacity(0.15),
                               child: Text(
                                 (username.isNotEmpty ? username[0] : 'U')
                                     .toUpperCase(),
@@ -199,7 +216,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ),
                             subtitle: Text(
-                              lastMessage,
+                              displayLastMessage,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.bodySmall?.copyWith(
@@ -209,10 +226,10 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             trailing: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.end,
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  DateFormat('HH:mm').format(lastTime),
+                                  DateFormat('h:mm a').format(lastTime),
                                   style: theme.textTheme.bodySmall?.copyWith(
                                     color: theme.textTheme.bodySmall?.color
                                         ?.withOpacity(0.6),

@@ -12,10 +12,13 @@ class AuthScreen extends StatefulWidget {
 }
 
 class _AuthScreenState extends State<AuthScreen> {
-  final _phoneController = TextEditingController();
-  final _otpController = TextEditingController();
-  final _usernameController = TextEditingController();
-  bool _isOtpSent = false;
+  final _keyController = TextEditingController();
+
+  @override
+  void dispose() {
+    _keyController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -24,9 +27,11 @@ class _AuthScreenState extends State<AuthScreen> {
     final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
-      backgroundColor: isDark ? const Color(0xFF050505) : theme.colorScheme.background,
+      backgroundColor:
+          isDark ? const Color(0xFF050505) : theme.colorScheme.background,
       appBar: AppBar(
-        backgroundColor: isDark ? const Color(0xFF050505) : theme.scaffoldBackgroundColor,
+        backgroundColor:
+            isDark ? const Color(0xFF050505) : theme.scaffoldBackgroundColor,
         elevation: 0,
         centerTitle: true,
         title: Text(
@@ -43,71 +48,58 @@ class _AuthScreenState extends State<AuthScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Sign in with phone',
+                'Sign in with key',
                 style: theme.textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(height: 8),
               Text(
-                'Enter your phone number and we’ll send you a verification code.',
+                'Enter your access key to continue.',
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.textTheme.bodyMedium?.color?.withOpacity(0.7),
+                  color:
+                      theme.textTheme.bodyMedium?.color?.withOpacity(0.7),
                 ),
               ),
               const SizedBox(height: 32),
-              if (!_isOtpSent)
-                _AuthInputField(
-                  controller: _phoneController,
-                  label: 'Phone Number',
-                  hint: '+1234567890',
-                  icon: Remix.phone_line,
-                  keyboardType: TextInputType.phone,
-                ),
-              if (_isOtpSent) ...[
-                _AuthInputField(
-                  controller: _otpController,
-                  label: 'Verification code',
-                  hint: '6‑digit code',
-                  icon: Remix.key_2_line,
-                  keyboardType: TextInputType.number,
-                ),
-                const SizedBox(height: 16),
-                _AuthInputField(
-                  controller: _usernameController,
-                  label: 'Username',
-                  hint: 'Choose a display name',
-                  icon: Remix.user_3_line,
-                ),
-              ],
+              _AuthInputField(
+                controller: _keyController,
+                label: 'Access Key',
+                hint: 'Paste your 15‑character key',
+                icon: Remix.key_2_line,
+                keyboardType: TextInputType.visiblePassword,
+              ),
               const SizedBox(height: 24),
               SizedBox(
                 width: double.infinity,
                 height: 52,
                 child: FilledButton.icon(
-                  icon: Icon(
-                    _isOtpSent ? Remix.check_line : Remix.arrow_right_s_line,
+                  icon: authProvider.isLoading
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Remix.arrow_right_s_line),
+                  label: Text(
+                    authProvider.isLoading ? 'Signing in...' : 'Continue',
                   ),
-                  label: Text(_isOtpSent ? 'Verify code' : 'Send code'),
                   style: FilledButton.styleFrom(
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
                   ),
-                  onPressed: () async {
-                    if (!_isOtpSent) {
-                      await authProvider.verifyPhone(_phoneController.text, context);
-                      if (authProvider.verificationId != null) {
-                        setState(() => _isOtpSent = true);
-                      }
-                    } else {
-                      await authProvider.verifyOtp(
-                        _otpController.text,
-                        context,
-                        _usernameController.text,
-                      );
-                    }
-                  },
+                  onPressed: authProvider.isLoading
+                      ? null
+                      : () async {
+                          await authProvider.loginWithKey(
+                            _keyController.text,
+                            context,
+                          );
+                        },
                 ),
               ),
               if (authProvider.errorMessage != null)

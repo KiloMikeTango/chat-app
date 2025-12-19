@@ -7,7 +7,7 @@ class ChatProvider with ChangeNotifier {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final Uuid _uuid = Uuid();
 
-  /// All chats where the user participates, ordered by last message time
+  /// All chats where the user participates, ordered by last message time.
   Stream<QuerySnapshot> getChats(String userId) {
     return _firestore
         .collection('chats')
@@ -16,7 +16,7 @@ class ChatProvider with ChangeNotifier {
         .snapshots();
   }
 
-  /// Messages of a single chat, newest first
+  /// Messages of a single chat, newest first.
   Stream<QuerySnapshot> getMessages(String chatId) {
     return _firestore
         .collection('chats')
@@ -26,7 +26,15 @@ class ChatProvider with ChangeNotifier {
         .snapshots();
   }
 
-  /// Get existing chat between two users or create a new one
+  /// Build a deterministic chatId from two userIds (sorted).
+  /// This does NOT create any document.
+  String buildChatId(String userA, String userB) {
+    final List<String> ids = [userA, userB]..sort();
+    return '${ids[0]}_${ids[1]}';
+  }
+
+  /// Legacy helper: get existing chat or create a new one.
+  /// Prefer [buildChatId] + lazy creation on first message.
   Future<String> getOrCreateChat(
     String currentUserId,
     String otherUserId,
@@ -37,53 +45,61 @@ class ChatProvider with ChangeNotifier {
         .get();
 
     for (var doc in query.docs) {
-      List participants = doc['participants'];
+      final List participants = doc['participants'];
       if (participants.contains(otherUserId)) {
         return doc.id;
       }
     }
 
-    // Create new chat
     final chatId = _uuid.v4();
     await _firestore.collection('chats').doc(chatId).set({
       'participants': [currentUserId, otherUserId],
-      'lastMessageTime': Timestamp.now(),
+      'lastMessageTime': null,
       'lastMessage': null,
-      // per‑user unread counts, start at 0
+      'lastMessageSenderId': null,
       'unreadCounts': {currentUserId: 0, otherUserId: 0},
     });
     return chatId;
   }
 
-  /// Send a message and increment unread count for all other participants
+  /// Send a message and increment unread count for all other participants.
+  /// If the chat document does not exist yet, it will be created.
   Future<void> sendMessage(
     String chatId,
     String senderId,
     String text, {
+    required List<String> participants,
     String? quotedMessageId,
   }) async {
     final chatRef = _firestore.collection('chats').doc(chatId);
     final messagesRef = chatRef.collection('messages');
-
     final now = Timestamp.now();
 
     await _firestore.runTransaction((tx) async {
       final chatSnap = await tx.get(chatRef);
       final data = chatSnap.data() as Map<String, dynamic>? ?? {};
 
-      final List<dynamic> participants =
-          (data['participants'] as List<dynamic>? ?? []);
+      // Prefer stored participants/unreadCounts if chat already exists.
+      final List<dynamic> storedParticipants =
+          (data['participants'] as List<dynamic>? ?? participants);
       final Map<String, dynamic> unreadCounts =
           (data['unreadCounts'] as Map<String, dynamic>? ?? {});
 
-      // increment unread for everyone except sender
-      for (final id in participants) {
+      // Ensure all participants have an entry in unreadCounts.
+      for (final id in storedParticipants) {
+        final uid = id.toString();
+        unreadCounts.putIfAbsent(uid, () => 0);
+      }
+
+      // Increment unread for everyone except sender.
+      for (final id in storedParticipants) {
         final uid = id.toString();
         if (uid == senderId) continue;
         final current = (unreadCounts[uid] ?? 0) as int;
         unreadCounts[uid] = current + 1;
       }
 
+      // Create message document.
       final msgRef = messagesRef.doc();
       tx.set(msgRef, {
         'text': text,
@@ -94,29 +110,31 @@ class ChatProvider with ChangeNotifier {
         'quotedMessageId': quotedMessageId,
       });
 
-      tx.update(chatRef, {
-        'lastMessageTime': now,
-        'lastMessage': text,
-        'unreadCounts': unreadCounts,
-      });
+      // Update chat meta.
+      tx.set(
+        chatRef,
+        {
+          'participants': storedParticipants,
+          'lastMessageTime': now,
+          'lastMessage': text,
+          'lastMessageSenderId': senderId,
+          'unreadCounts': unreadCounts,
+        },
+        SetOptions(merge: true),
+      );
     });
   }
 
-  /// Edit message text (does not touch unread counts)
   Future<void> editMessage(
     String chatId,
     String messageId,
     String newText,
   ) async {
-    await _firestore
-        .collection('chats')
-        .doc(chatId)
-        .collection('messages')
-        .doc(messageId)
-        .update({'text': newText, 'editedAt': Timestamp.now()});
-
-    // Optionally update lastMessage if this was the last sent message
     final chatRef = _firestore.collection('chats').doc(chatId);
+    final msgRef = chatRef.collection('messages').doc(messageId);
+
+    await msgRef.update({'text': newText, 'editedAt': Timestamp.now()});
+
     final lastMsgQuery = await chatRef
         .collection('messages')
         .orderBy('timestamp', descending: true)
@@ -125,11 +143,15 @@ class ChatProvider with ChangeNotifier {
 
     if (lastMsgQuery.docs.isNotEmpty &&
         lastMsgQuery.docs.first.id == messageId) {
-      await chatRef.update({'lastMessage': newText});
+      final docData =
+          lastMsgQuery.docs.first.data() as Map<String, dynamic>;
+      await chatRef.update({
+        'lastMessage': newText,
+        'lastMessageSenderId': docData['senderId'],
+      });
     }
   }
 
-  /// Delete message; if it was the last one, clear or update lastMessage
   Future<void> deleteMessage(String chatId, String messageId) async {
     final chatRef = _firestore.collection('chats').doc(chatId);
     final messagesRef = chatRef.collection('messages');
@@ -142,17 +164,22 @@ class ChatProvider with ChangeNotifier {
         .get();
 
     if (remainingMessages.docs.isEmpty) {
-      await chatRef.update({'lastMessage': null});
+      await chatRef.update({
+        'lastMessage': null,
+        'lastMessageTime': null,
+        'lastMessageSenderId': null,
+      });
     } else {
-      final last = remainingMessages.docs.first.data();
+      final last =
+          remainingMessages.docs.first.data() as Map<String, dynamic>;
       await chatRef.update({
         'lastMessage': last['text'],
         'lastMessageTime': last['timestamp'],
+        'lastMessageSenderId': last['senderId'],
       });
     }
   }
 
-  /// Add or change a reaction from one user
   Future<void> addReaction(
     String chatId,
     String messageId,
@@ -167,17 +194,24 @@ class ChatProvider with ChangeNotifier {
         .update({'reactions.$userId': reaction});
   }
 
-  /// Delete whole chat document (messages subcollection stays on backend)
   Future<void> deleteChat(String chatId) async {
-    await _firestore.collection('chats').doc(chatId).delete();
+    final chatRef = _firestore.collection('chats').doc(chatId);
+    final messagesRef = chatRef.collection('messages');
+
+    // Delete all messages in this chat.
+    final messagesSnap = await messagesRef.get();
+    for (final doc in messagesSnap.docs) {
+      await doc.reference.delete();
+    }
+
+    // Now delete the chat document itself.
+    await chatRef.delete();
   }
 
-  /// User document stream
   Stream<DocumentSnapshot> getUser(String userId) {
     return _firestore.collection('users').doc(userId).snapshots();
   }
 
-  /// Simple username search
   Future<List<QueryDocumentSnapshot>> searchUsers(String query) async {
     final result = await _firestore
         .collection('users')
@@ -187,20 +221,16 @@ class ChatProvider with ChangeNotifier {
     return result.docs;
   }
 
-  /// Mark chat as read for a specific user (set unread count to 0)
+  /// Mark chat as read for one user.
+  /// Only that user's entry in unreadCounts is set to 0.
   Future<void> markChatAsRead(String chatId, String userId) async {
     final chatRef = _firestore.collection('chats').doc(chatId);
-    await _firestore.runTransaction((tx) async {
-      final snap = await tx.get(chatRef);
-      final data = snap.data() as Map<String, dynamic>? ?? {};
-      final Map<String, dynamic> unreadCounts =
-          (data['unreadCounts'] as Map<String, dynamic>? ?? {});
-      unreadCounts[userId] = 0;
-      tx.update(chatRef, {'unreadCounts': unreadCounts});
+    await chatRef.update({
+      'unreadCounts.$userId': 0,
     });
   }
 
-  /// Number of unread messages for `userId` in a chat (O(1))
+  /// Get unread count for one user in one chat.
   Future<int> getUnreadCount(String chatId, String userId) async {
     final chatSnap = await _firestore.collection('chats').doc(chatId).get();
     final data = chatSnap.data() as Map<String, dynamic>?;
