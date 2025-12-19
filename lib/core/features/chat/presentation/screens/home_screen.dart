@@ -196,18 +196,50 @@ class _HomeScreenState extends State<HomeScreen> {
                               horizontal: 16,
                               vertical: 6,
                             ),
-                            leading: CircleAvatar(
-                              radius: 24,
-                              backgroundColor: theme.colorScheme.primary
-                                  .withOpacity(0.15),
-                              child: Text(
-                                (username.isNotEmpty ? username[0] : 'U')
-                                    .toUpperCase(),
-                                style: TextStyle(
-                                  color: theme.colorScheme.primary,
-                                  fontWeight: FontWeight.w600,
+                            // leading avatar + optional small unread badge (top-right)
+                            leading: Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                CircleAvatar(
+                                  radius: 24,
+                                  backgroundColor: theme.colorScheme.primary
+                                      .withOpacity(0.15),
+                                  child: Text(
+                                    (username.isNotEmpty ? username[0] : 'U')
+                                        .toUpperCase(),
+                                    style: TextStyle(
+                                      color: theme.colorScheme.primary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
                                 ),
-                              ),
+                                if (unreadCount > 0)
+                                  Positioned(
+                                    // adjust these for exact corner placement
+                                    right: -2,
+                                    top: -2,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 6,
+                                        vertical: 2,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: theme.colorScheme.primary,
+                                        borderRadius: BorderRadius.circular(
+                                          999,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        unreadCount.toString(),
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
                             ),
                             title: Text(
                               username,
@@ -224,37 +256,48 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ?.withOpacity(0.7),
                               ),
                             ),
-                            trailing: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  DateFormat('h:mm a').format(lastTime),
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: theme.textTheme.bodySmall?.color
-                                        ?.withOpacity(0.6),
+                            trailing: SizedBox(
+                              width:
+                                  64, // controls how far right the badge can go
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  // top: time text (unchanged)
+                                  Text(
+                                    DateFormat('h:mm a').format(lastTime),
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: theme.textTheme.bodySmall?.color
+                                          ?.withOpacity(0.6),
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(height: 4),
-                                if (unreadCount > 0)
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 2,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: theme.colorScheme.primary,
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Text(
-                                      unreadCount.toString(),
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 12,
+                                  const SizedBox(height: 4),
+                                  // bottom: unread badge, slightly to the right under the time
+                                  if (unreadCount > 0)
+                                    Align(
+                                      alignment: Alignment.centerRight,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 2,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: theme.colorScheme.primary,
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          unreadCount.toString(),
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12,
+                                          ),
+                                        ),
                                       ),
                                     ),
-                                  ),
-                              ],
+                                ],
+                              ),
                             ),
                             onTap: () {
                               Navigator.push(
