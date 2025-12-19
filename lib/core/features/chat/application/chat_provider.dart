@@ -111,17 +111,13 @@ class ChatProvider with ChangeNotifier {
       });
 
       // Update chat meta.
-      tx.set(
-        chatRef,
-        {
-          'participants': storedParticipants,
-          'lastMessageTime': now,
-          'lastMessage': text,
-          'lastMessageSenderId': senderId,
-          'unreadCounts': unreadCounts,
-        },
-        SetOptions(merge: true),
-      );
+      tx.set(chatRef, {
+        'participants': storedParticipants,
+        'lastMessageTime': now,
+        'lastMessage': text,
+        'lastMessageSenderId': senderId,
+        'unreadCounts': unreadCounts,
+      }, SetOptions(merge: true));
     });
   }
 
@@ -143,8 +139,7 @@ class ChatProvider with ChangeNotifier {
 
     if (lastMsgQuery.docs.isNotEmpty &&
         lastMsgQuery.docs.first.id == messageId) {
-      final docData =
-          lastMsgQuery.docs.first.data() as Map<String, dynamic>;
+      final docData = lastMsgQuery.docs.first.data() as Map<String, dynamic>;
       await chatRef.update({
         'lastMessage': newText,
         'lastMessageSenderId': docData['senderId'],
@@ -170,8 +165,7 @@ class ChatProvider with ChangeNotifier {
         'lastMessageSenderId': null,
       });
     } else {
-      final last =
-          remainingMessages.docs.first.data() as Map<String, dynamic>;
+      final last = remainingMessages.docs.first.data() as Map<String, dynamic>;
       await chatRef.update({
         'lastMessage': last['text'],
         'lastMessageTime': last['timestamp'],
@@ -186,12 +180,30 @@ class ChatProvider with ChangeNotifier {
     String userId,
     String reaction,
   ) async {
-    await _firestore
+    final msgRef = _firestore
         .collection('chats')
         .doc(chatId)
         .collection('messages')
-        .doc(messageId)
-        .update({'reactions.$userId': reaction});
+        .doc(messageId);
+
+    await _firestore.runTransaction((tx) async {
+      final snap = await tx.get(msgRef);
+      if (!snap.exists) return;
+
+      final data = snap.data() as Map<String, dynamic>? ?? {};
+      final Map<String, dynamic> reactions =
+          (data['reactions'] as Map<String, dynamic>? ?? {});
+
+      final String? current = reactions[userId] as String?;
+
+      // If tapping same reaction -> remove it, else set/update it
+      if (current == reaction) {
+        reactions.remove(userId);
+        tx.update(msgRef, {'reactions.$userId': FieldValue.delete()});
+      } else {
+        tx.update(msgRef, {'reactions.$userId': reaction});
+      }
+    });
   }
 
   Future<void> deleteChat(String chatId) async {
@@ -225,9 +237,7 @@ class ChatProvider with ChangeNotifier {
   /// Only that user's entry in unreadCounts is set to 0.
   Future<void> markChatAsRead(String chatId, String userId) async {
     final chatRef = _firestore.collection('chats').doc(chatId);
-    await chatRef.update({
-      'unreadCounts.$userId': 0,
-    });
+    await chatRef.update({'unreadCounts.$userId': 0});
   }
 
   /// Get unread count for one user in one chat.

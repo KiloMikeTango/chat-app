@@ -126,11 +126,19 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  void _showReactions(String messageId) {
+  void _showReactions({
+    required String messageId,
+    required Map<String, dynamic> reactions,
+  }) {
     if (_chatProvider == null || userId == null) return;
+
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final String? myReaction = reactions[userId] as String?;
+
     showModalBottomSheet(
       context: context,
-      backgroundColor: Theme.of(context).colorScheme.surface,
+      backgroundColor: theme.colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
@@ -138,22 +146,47 @@ class _ChatScreenState extends State<ChatScreen> {
         padding: const EdgeInsets.symmetric(vertical: 12.0),
         child: Wrap(
           alignment: WrapAlignment.center,
-          children: _reactions
-              .map(
-                (reaction) => IconButton(
-                  icon: Text(reaction, style: const TextStyle(fontSize: 26)),
-                  onPressed: () {
-                    _chatProvider!.addReaction(
-                      widget.chatId,
-                      messageId,
-                      userId!,
-                      reaction,
-                    );
-                    Navigator.pop(context);
-                  },
+          children: _reactions.map((reaction) {
+            final bool isSelected = myReaction == reaction;
+
+            final Color bgColor = isSelected
+                ? (isDark
+                      ? theme.colorScheme.primary.withOpacity(0.25)
+                      : theme.colorScheme.primary.withOpacity(0.18))
+                : Colors.transparent;
+
+            final Color borderColor = isSelected
+                ? theme.colorScheme.primary.withOpacity(0.8)
+                : Colors.transparent;
+
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4.0),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(20),
+                onTap: () {
+                  _chatProvider!.addReaction(
+                    widget.chatId,
+                    messageId,
+                    userId!,
+                    reaction,
+                  );
+                  Navigator.pop(context);
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: bgColor,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: borderColor, width: 1.2),
+                  ),
+                  child: Text(reaction, style: const TextStyle(fontSize: 26)),
                 ),
-              )
-              .toList(),
+              ),
+            );
+          }).toList(),
         ),
       ),
     );
@@ -444,7 +477,10 @@ class _ChatScreenState extends State<ChatScreen> {
                             if (isMe) {
                               _startEditing(doc.id, data['text']);
                             } else {
-                              _showReactions(doc.id);
+                              _showReactions(
+                                messageId: doc.id,
+                                reactions: reactions,
+                              );
                             }
                           },
                           child: Stack(
